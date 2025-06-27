@@ -1,0 +1,19 @@
+/* style.css */
+.stTextInput>div>div>input {
+    padding: 10px;
+    border-radius: 8px;
+}
+
+.stButton>button {
+    border-radius: 8px;
+    padding: 10px 24px;
+    font-weight: 500;
+}
+
+.st-emotion-cache-1v0mbdj {
+    border-radius: 12px;
+}
+
+.st-emotion-cache-1y4p8pa {
+    padding: 2rem;
+}
