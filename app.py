@@ -9,8 +9,22 @@ import requests
 from io import BytesIO
 import time
 from requests.exceptions import HTTPError
-import json
-from pathlib import Path
+from collections import Counter
+import re
+
+# --- Initialize Session State Variables ---
+if 'show_stats' not in st.session_state:
+    st.session_state.show_stats = True
+if 'show_wordcloud' not in st.session_state:
+    st.session_state.show_wordcloud = True
+if 'show_common_words' not in st.session_state:
+    st.session_state.show_common_words = True
+if 'max_words' not in st.session_state:
+    st.session_state.max_words = 150
+if 'background_color' not in st.session_state:
+    st.session_state.background_color = "#ffffff"
+if 'colormap' not in st.session_state:
+    st.session_state.colormap = "inferno"
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -30,34 +44,27 @@ def local_css(file_name):
 
 local_css("style.css")
 
-# --- Genius API Setup with Robust Error Handling ---
+# --- Genius API Setup ---
 @st.cache_data
 def get_genius_client():
-    try:
-        GENIUS_TOKEN = os.getenv("GENIUS_TOKEN")
-        if not GENIUS_TOKEN:
-            st.error("GENIUS_TOKEN environment variable not found. Please set it in your deployment settings.")
-            st.stop()
-        
-        genius = lyricsgenius.Genius(
-            GENIUS_TOKEN,
-            verbose=False,
-            remove_section_headers=True,
-            skip_non_songs=True,
-            excluded_terms=["(Remix)", "(Live)"],
-            timeout=20
-        )
-        
-        # Add headers to mimic browser request
-        genius._session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'application/json'
-        })
-        
-        return genius
-    except Exception as e:
-        st.error(f"Failed to initialize Genius API client: {str(e)}")
+    GENIUS_TOKEN = os.getenv("GENIUS_TOKEN")
+    if not GENIUS_TOKEN:
+        st.error("GENIUS_TOKEN environment variable not found. Please set it in your deployment settings.")
         st.stop()
+    
+    genius = lyricsgenius.Genius(
+        GENIUS_TOKEN,
+        verbose=False,
+        remove_section_headers=True,
+        skip_non_songs=True,
+        excluded_terms=["(Remix)", "(Live)"],
+        timeout=20
+    )
+    genius._session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/json'
+    })
+    return genius
 
 genius = get_genius_client()
 
@@ -79,14 +86,14 @@ def search_song_with_retry(title, artist, max_retries=3):
     return None
 
 # --- Word Cloud Generation ---
-def generate_word_cloud(lyrics, max_words, background_color, colormap):
+def generate_word_cloud(lyrics):
     try:
         wordcloud = WordCloud(
             width=800,
             height=400,
-            background_color=background_color,
-            max_words=max_words,
-            colormap=colormap,
+            background_color=st.session_state.background_color,
+            max_words=st.session_state.max_words,
+            colormap=st.session_state.colormap,
             collocations=False,
             prefer_horizontal=0.8,
             scale=2
@@ -119,9 +126,6 @@ def display_lyrics_stats(lyrics):
 
 def display_common_words(lyrics):
     try:
-        from collections import Counter
-        import re
-        
         words = re.findall(r'\w+', lyrics.lower())
         common_words = ["i", "you", "the", "a", "and", "to", "it", "me", "my", "we", "is", "in", "of", "that", "this"]
         filtered_words = [word for word in words if word not in common_words and len(word) > 3]
@@ -130,7 +134,7 @@ def display_common_words(lyrics):
         df = pd.DataFrame(word_counts, columns=["Word", "Count"])
         st.dataframe(
             df.style
-            .background_gradient(cmap=colormap, subset=['Count'])
+            .background_gradient(cmap=st.session_state.colormap, subset=['Count'])
             .set_properties(**{'text-align': 'left'}),
             use_container_width=True
         )
@@ -139,14 +143,6 @@ def display_common_words(lyrics):
 
 # --- Main App UI ---
 def main():
-    # Initialize session state
-    if 'show_stats' not in st.session_state:
-        st.session_state.show_stats = True
-    if 'show_wordcloud' not in st.session_state:
-        st.session_state.show_wordcloud = True
-    if 'show_common_words' not in st.session_state:
-        st.session_state.show_common_words = True
-    
     # Header
     st.title("🎶 Taylor Swift Lyrics Explorer")
     st.markdown("""
@@ -202,7 +198,7 @@ def main():
                         
                         if st.session_state.show_wordcloud:
                             st.subheader("☁️ Word Cloud")
-                            generate_word_cloud(song.lyrics, max_words, background_color, colormap)
+                            generate_word_cloud(song.lyrics)
                             st.markdown("---")
                         
                         if st.session_state.show_common_words:
@@ -219,8 +215,6 @@ def main():
                         - Invalid API token
                         - Rate limit exceeded
                         - Temporary API issues
-                        
-                        Try again later or check your environment variables.
                     """)
                 else:
                     st.error(f"An error occurred: {str(e)}")
@@ -229,17 +223,33 @@ def main():
 with st.sidebar:
     st.header("🎛️ Customization Options")
     with st.expander("Display Settings", expanded=True):
-        st.session_state.show_stats = st.checkbox("Show statistics", st.session_state.show_stats)
-        st.session_state.show_wordcloud = st.checkbox("Show word cloud", st.session_state.show_wordcloud)
-        st.session_state.show_common_words = st.checkbox("Show common words", st.session_state.show_common_words)
+        st.session_state.show_stats = st.checkbox(
+            "Show statistics", 
+            value=st.session_state.show_stats
+        )
+        st.session_state.show_wordcloud = st.checkbox(
+            "Show word cloud", 
+            value=st.session_state.show_wordcloud
+        )
+        st.session_state.show_common_words = st.checkbox(
+            "Show common words", 
+            value=st.session_state.show_common_words
+        )
     
     with st.expander("Word Cloud Settings", expanded=True):
-        max_words = st.slider("Max words", 50, 300, 150, help="Maximum number of words to display in the word cloud")
-        background_color = st.color_picker("Background color", "#ffffff")
-        colormap = st.selectbox(
+        st.session_state.max_words = st.slider(
+            "Max words", 
+            50, 300, st.session_state.max_words,
+            help="Maximum number of words to display in the word cloud"
+        )
+        st.session_state.background_color = st.color_picker(
+            "Background color", 
+            st.session_state.background_color
+        )
+        st.session_state.colormap = st.selectbox(
             "Color scheme",
             ["viridis", "plasma", "inferno", "magma", "cividis", "twilight", "hsv", "autumn", "winter"],
-            index=2
+            index=["viridis", "plasma", "inferno", "magma", "cividis", "twilight", "hsv", "autumn", "winter"].index(st.session_state.colormap)
         )
     
     st.markdown("---")
